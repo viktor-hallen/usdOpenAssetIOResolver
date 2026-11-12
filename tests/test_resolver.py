@@ -12,6 +12,8 @@ that in turn points to a manager plugin that will satisfy these tests.
 # pylint: disable=missing-function-docstring,missing-module-docstring
 
 import os
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -44,13 +46,65 @@ def test_when_manager_cannot_resolve_then_exception_thrown(monkeypatch):
         os.environ["OPENASSETIO_DEFAULT_CONFIG"] + ".incapable",
     )
 
+    # Resolve an entity reference, so that the plugin is initialized
+    # whether it is the primary resolver or registered for URI schemes.
     with pytest.raises(
         ValueError,
         match=".+ is not capable of resolving entity references",
     ):
-        open_stage(
-            "resources/integration_test_data/recursive_assetized_resolve/floors/floor 1.usd"
+        Ar.GetResolver().Resolve("bal:///recursive_assetized_resolve/car")
+
+
+# Given the plugin is built with URI schemes, then it is registered as a
+# URI resolver and the default resolver stays primary; otherwise it is
+# the primary resolver. Either way, entity references resolve.
+def test_resolver_registration_matches_plugin_metadata():
+    plugin = Plug.Registry().GetPluginWithName("usdOpenAssetIOResolver")
+    uri_schemes = plugin.metadata["Types"]["UsdOpenAssetIOResolver"].get("uriSchemes")
+    primary = Ar.GetUnderlyingResolver()
+
+    if uri_schemes:
+        assert isinstance(primary, Ar.DefaultResolver)
+    else:
+        assert not isinstance(primary, Ar.DefaultResolver)
+    assert Ar.GetResolver().Resolve("bal:///recursive_assetized_resolve/car")
+
+
+# Given a fresh process opening a stage with many entity references,
+# then composition succeeds. Composition runs on several threads, and
+# the plugin may not have been created yet (e.g. a URI resolver is
+# created on first use), so this checks the manager is initialized
+# safely in that situation.
+def test_fresh_process_opens_stage_with_many_entity_references(tmp_path):
+    num_refs = 40
+    prims = "".join(
+        f'    def "Car{index}" (\n'
+        f"        references = @bal:///recursive_assetized_resolve/car@</Car>\n"
+        f"    )\n    {{\n    }}\n"
+        for index in range(num_refs)
+    )
+    stage_path = tmp_path / "many_refs.usda"
+    stage_path.write_text(f'#usda 1.0\n\ndef "Root"\n{{\n{prims}}}\n')
+    script = (
+        "import sys\n"
+        "from pxr import Usd\n"
+        "stage = Usd.Stage.Open(sys.argv[1])\n"
+        "cars = stage.GetPrimAtPath('/Root').GetChildren()\n"
+        f"complete = len(cars) == {num_refs}\n"
+        "complete = complete and all(c.HasAttribute('color') for c in cars)\n"
+        "sys.exit(0 if complete else 1)\n"
+    )
+
+    # Several attempts, as a race need not show up every time.
+    for _ in range(5):
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(stage_path)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
         )
+        assert result.returncode == 0, result.stderr[-2000:]
 
 
 # Given a USD document that references an asset via a direct relative

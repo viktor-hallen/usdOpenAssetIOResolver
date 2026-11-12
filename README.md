@@ -112,6 +112,18 @@ cmake --build build
 cmake --install build
 ```
 
+By default the plugin replaces USD's primary resolver, deferring to
+`ArDefaultResolver` for asset paths that are not entity references.
+To leave the primary resolver (and any other resolvers) in place,
+register the plugin only for your manager's URI schemes instead:
+
+```sh
+cmake -S . -B build -DOPENASSETIO_USDRESOLVER_URI_SCHEMES="bal" ...
+```
+
+Multiple schemes are separated by semicolons. Entity references must
+then begin with one of these schemes, followed by `:`.
+
 ## Running
 
 To enable the resolver, before running any USD application, you must set
@@ -132,7 +144,9 @@ usdcat yourUsdFile.usd
 >
 > Depending on you install mechanism, you may also need to extend your
 > system paths (eg `LD_LIBRARY_PATH` and `PYTHONPATH`) to reference
->`OpenAssetIO` and `Usd`.
+>`OpenAssetIO` and `Usd`. On Windows, add the OpenAssetIO `bin`
+> directory to `PATH` and set `OPENASSETIO_DLL_PATH` to it, so both the
+> plugin and the `openassetio` Python package can load its DLLs.
 >
 > For an example of this, and a whole build/run configuration, see
 > [test.yml](.github/workflows/test.yml), which utilizes the

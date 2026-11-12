@@ -6,11 +6,11 @@
                     "UsdOpenAssetIOResolver": {
                         "bases": [
                             "ArResolver"
-                        ]
+                        ]@USDRESOLVER_URI_SCHEMES_JSON@
                     }
                 }
             },
-            "LibraryPath": "../libusdOpenAssetIOResolver.so",
+            "LibraryPath": "../$<TARGET_FILE_NAME:usdOpenAssetIOResolver>",
             "Name": "usdOpenAssetIOResolver",
             "Type": "library"
         }

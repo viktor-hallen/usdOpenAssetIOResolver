@@ -77,6 +77,70 @@ class UsdOpenAssetIOHostInterface final : public openassetio::hostApi::HostInter
   }
 };
 
+/**
+ * The OpenAssetIO objects a resolver instance talks to.
+ */
+struct OpenAssetIOSession {
+  openassetio::log::LoggerInterfacePtr logger;
+  openassetio::hostApi::ManagerPtr manager;
+  openassetio::ContextConstPtr context;
+};
+
+OpenAssetIOSession createOpenAssetIOSession() {
+  OpenAssetIOSession session;
+  session.logger =
+      openassetio::log::SeverityFilter::make(std::make_shared<UsdOpenAssetIOResolverLogger>());
+  // Python plugin system.
+  const auto pythonManagerImplementationFactory =
+      openassetio::python::hostApi::createPythonPluginSystemManagerImplementationFactory(
+          session.logger);
+  // C++ plugin system.
+  const auto cppManagerImplementationFactory =
+      openassetio::pluginSystem::CppPluginSystemManagerImplementationFactory::make(session.logger);
+  // Combined Python/C++ plugin system. Note: C++ is listed first so
+  // has priority.
+  const auto hybridManagerImplementationFactory =
+      openassetio::pluginSystem::HybridPluginSystemManagerImplementationFactory::make(
+          {cppManagerImplementationFactory, pythonManagerImplementationFactory}, session.logger);
+  const auto hostInterface = std::make_shared<UsdOpenAssetIOHostInterface>();
+  // Find the plugin configured using the OPENASSETIO_DEFAULT_CONFIG
+  // file, initialise it, and create the host-facing Manager
+  // middleware for us to communicate with it.
+  session.manager = openassetio::hostApi::ManagerFactory::defaultManagerForInterface(
+      hostInterface, hybridManagerImplementationFactory, session.logger);
+  if (!session.manager) {
+    throw std::invalid_argument{
+        "No default manager configured, " +
+        openassetio::hostApi::ManagerFactory::kDefaultManagerConfigEnvVarName};
+  }
+  // This USD plugin is useless unless the manager plugin has the
+  // basic ability to `resolve(...)`.
+  if (!session.manager->hasCapability(openassetio::hostApi::Manager::Capability::kResolution)) {
+    throw std::invalid_argument{session.manager->displayName() +
+                                " is not capable of resolving entity references"};
+  }
+  session.context = session.manager->createContext();
+  return session;
+}
+
+/**
+ * The process-wide OpenAssetIO session, shared by all resolver
+ * instances.
+ *
+ * USD may construct a resolver more than once, concurrently, and
+ * discard all but one instance; it does so when lazily creating URI
+ * resolvers from composition threads. Initializing and tearing down a
+ * manager per instance in that situation is unsafe, so instances share
+ * one session, initialized once (a failed initialization is retried by
+ * the next instance). It is intentionally never destroyed, so that it
+ * is not torn down during process exit after the Python interpreter.
+ */
+const OpenAssetIOSession &sharedOpenAssetIOSession() {
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+  static const auto *const kSession = new OpenAssetIOSession{createOpenAssetIOSession()};
+  return *kSession;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------
@@ -87,38 +151,10 @@ class UsdOpenAssetIOHostInterface final : public openassetio::hostApi::HostInter
 class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
  public:
   UsdOpenAssetIOResolver() {
-    logger_ =
-        openassetio::log::SeverityFilter::make(std::make_shared<UsdOpenAssetIOResolverLogger>());
-    // Python plugin system.
-    const auto pythonManagerImplementationFactory =
-        openassetio::python::hostApi::createPythonPluginSystemManagerImplementationFactory(
-            logger_);
-    // C++ plugin system.
-    const auto cppManagerImplementationFactory =
-        openassetio::pluginSystem::CppPluginSystemManagerImplementationFactory::make(logger_);
-    // Combined Python/C++ plugin system. Note: C++ is listed first so
-    // has priority.
-    const auto hybridManagerImplementationFactory =
-        openassetio::pluginSystem::HybridPluginSystemManagerImplementationFactory::make(
-            {cppManagerImplementationFactory, pythonManagerImplementationFactory}, logger_);
-    const auto hostInterface = std::make_shared<UsdOpenAssetIOHostInterface>();
-    // Find the plugin configured using the OPENASSETIO_DEFAULT_CONFIG
-    // file, initialise it, and create the host-facing Manager
-    // middleware for us to communicate with it.
-    manager_ = openassetio::hostApi::ManagerFactory::defaultManagerForInterface(
-        hostInterface, hybridManagerImplementationFactory, logger_);
-    if (!manager_) {
-      throw std::invalid_argument{
-          "No default manager configured, " +
-          openassetio::hostApi::ManagerFactory::kDefaultManagerConfigEnvVarName};
-    }
-    // This USD plugin is useless unless the manager plugin has the
-    // basic ability to `resolve(...)`.
-    if (!manager_->hasCapability(openassetio::hostApi::Manager::Capability::kResolution)) {
-      throw std::invalid_argument{manager_->displayName() +
-                                  " is not capable of resolving entity references"};
-    }
-    context_ = manager_->createContext();
+    const OpenAssetIOSession &session = sharedOpenAssetIOSession();
+    logger_ = session.logger;
+    manager_ = session.manager;
+    context_ = session.context;
   }
 
   ~UsdOpenAssetIOResolver() override = default;
