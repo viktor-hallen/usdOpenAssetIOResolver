@@ -137,8 +137,8 @@ OpenAssetIOSession createOpenAssetIOSession() {
  */
 const OpenAssetIOSession &sharedOpenAssetIOSession() {
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-  static const auto *const session = new OpenAssetIOSession{createOpenAssetIOSession()};
-  return *session;
+  static const auto *const kSession = new OpenAssetIOSession{createOpenAssetIOSession()};
+  return *kSession;
 }
 
 }  // namespace
