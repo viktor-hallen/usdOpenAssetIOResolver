@@ -90,7 +90,9 @@ def test_fresh_process_opens_stage_with_many_entity_references(tmp_path):
         "from pxr import Usd\n"
         "stage = Usd.Stage.Open(sys.argv[1])\n"
         "cars = stage.GetPrimAtPath('/Root').GetChildren()\n"
-        f"sys.exit(0 if len(cars) == {num_refs} and all(c.HasAttribute('color') for c in cars) else 1)\n"
+        f"complete = len(cars) == {num_refs}\n"
+        "complete = complete and all(c.HasAttribute('color') for c in cars)\n"
+        "sys.exit(0 if complete else 1)\n"
     )
 
     # Several attempts, as a race need not show up every time.

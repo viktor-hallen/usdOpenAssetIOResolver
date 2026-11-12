@@ -96,8 +96,7 @@ OpenAssetIOSession createOpenAssetIOSession() {
           session.logger);
   // C++ plugin system.
   const auto cppManagerImplementationFactory =
-      openassetio::pluginSystem::CppPluginSystemManagerImplementationFactory::make(
-          session.logger);
+      openassetio::pluginSystem::CppPluginSystemManagerImplementationFactory::make(session.logger);
   // Combined Python/C++ plugin system. Note: C++ is listed first so
   // has priority.
   const auto hybridManagerImplementationFactory =
@@ -116,8 +115,7 @@ OpenAssetIOSession createOpenAssetIOSession() {
   }
   // This USD plugin is useless unless the manager plugin has the
   // basic ability to `resolve(...)`.
-  if (!session.manager->hasCapability(
-          openassetio::hostApi::Manager::Capability::kResolution)) {
+  if (!session.manager->hasCapability(openassetio::hostApi::Manager::Capability::kResolution)) {
     throw std::invalid_argument{session.manager->displayName() +
                                 " is not capable of resolving entity references"};
   }
