@@ -26,7 +26,10 @@ openassetio_usdresolver_set_default_target_properties(${PLUGIN_NAME})
 # ----------------------------------------------------------------------
 # Silence warnings about deprecation from USD itself
 # At time of writing, from : from USD/include/pxr/base/tf/hashset.h:39
-target_compile_options(${PLUGIN_NAME} PRIVATE -Wno-deprecated)
+# MSVC has no equivalent flag and rejects it.
+if (NOT MSVC)
+    target_compile_options(${PLUGIN_NAME} PRIVATE -Wno-deprecated)
+endif ()
 
 #-----------------------------------------------------------------------
 # Main install
@@ -38,10 +41,17 @@ install(
 )
 
 #-----------------------------------------------------------------------
-# Install plugInfo.json
+# Generate and install plugInfo.json
+# The library file name is platform specific (e.g. lib*.so, lib*.dylib,
+# *.dll), so it is filled in from the built target.
+file(
+    GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/plugInfo.json
+    INPUT ${CMAKE_CURRENT_SOURCE_DIR}/resources/plugInfo.json.in
+)
 install(
     FILES
-	resources/plugInfo.json
+    ${CMAKE_CURRENT_BINARY_DIR}/plugInfo.json
     DESTINATION
     ./resources
 )

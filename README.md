@@ -131,7 +131,9 @@ usdcat yourUsdFile.usd
 >
 > Depending on you install mechanism, you may also need to extend your
 > system paths (eg `LD_LIBRARY_PATH` and `PYTHONPATH`) to reference
->`OpenAssetIO` and `Usd`.
+>`OpenAssetIO` and `Usd`. On Windows, add the OpenAssetIO `bin`
+> directory to `PATH` and set `OPENASSETIO_DLL_PATH` to it, so both the
+> plugin and the `openassetio` Python package can load its DLLs.
 >
 > For an example of this, and a whole build/run configuration, see
 > [test.yml](.github/workflows/test.yml), which utilizes the
