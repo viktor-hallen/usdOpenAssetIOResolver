@@ -98,8 +98,9 @@ def test_recursive_assetized_resolve():
 # Given an entity reference with no file extension, then the extension
 # is that of the location the reference resolves to.
 def test_entity_reference_extension_is_that_of_resolved_location():
-    assert Ar.GetResolver().GetExtension("bal:///recursive_assetized_resolve/car") == "usd"
-    assert Ar.GetResolver().GetExtension("bal:///recursive_assetized_resolve/floor") == "usd"
+    resolver = Ar.GetResolver()
+    assert resolver.GetExtension("bal:///recursive_assetized_resolve/car") == "usd"
+    assert resolver.GetExtension("bal:///recursive_assetized_resolve/floor") == "usd"
 
 
 # Given a USD document that references assetized documents, then
