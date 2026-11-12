@@ -63,9 +63,10 @@ limitations.
 - `managementPolicy` is not checked, and so the configured manager will
   always be queried for each reference during stage composition.
 
-- Only the `LocatableContentTrait` is resolved. File extensions and file
-  modification times will are based on file-based fallbacks if possible,
-  and return sensible defaults if not. Many potentially expected
+- Only the `LocatableContentTrait` is resolved. The file extension of an
+  entity reference is that of its resolved location. File modification
+  times are based on file-based fallbacks if possible, and return
+  sensible defaults if not. Many potentially expected
   structures (ie, `AssetInfo`), will be empty.
 
 - There is no USD locale set in the OpenAssetIO context.
