@@ -56,7 +56,15 @@ if (OPENASSETIO_USDRESOLVER_URI_SCHEMES)
         list(APPEND _quoted_schemes "\"${scheme}\"")
     endforeach ()
     list(JOIN _quoted_schemes ", " _joined_schemes)
-    set(USDRESOLVER_URI_SCHEMES_JSON ",\n                        \"uriSchemes\": [${_joined_schemes}]")
+    # USD creates URI resolvers lazily, on first use. Without contexts
+    # that can be on several composition threads at once, which is
+    # where the manager (and potentially a Python interpreter) would
+    # then be initialized. Declaring context support (which the
+    # ArDefaultResolver base implements) makes USD create the resolver
+    # when a context is bound, e.g. by UsdStage::Open on the calling
+    # thread, before composition starts.
+    set(USDRESOLVER_URI_SCHEMES_JSON
+        ",\n                        \"implementsContexts\": true,\n                        \"uriSchemes\": [${_joined_schemes}]")
 endif ()
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/plugInfo.json.in

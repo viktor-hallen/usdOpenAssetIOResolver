@@ -12,6 +12,8 @@ that in turn points to a manager plugin that will satisfy these tests.
 # pylint: disable=missing-function-docstring,missing-module-docstring
 
 import os
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -66,6 +68,41 @@ def test_resolver_registration_matches_plugin_metadata():
     else:
         assert not isinstance(primary, Ar.DefaultResolver)
     assert Ar.GetResolver().Resolve("bal:///recursive_assetized_resolve/car")
+
+
+# Given a fresh process opening a stage with many entity references,
+# then composition succeeds. Composition runs on several threads, and
+# the plugin may not have been created yet (e.g. a URI resolver is
+# created on first use), so this checks the manager is initialized
+# safely in that situation.
+def test_fresh_process_opens_stage_with_many_entity_references(tmp_path):
+    num_refs = 40
+    prims = "".join(
+        f'    def "Car{index}" (\n'
+        f"        references = @bal:///recursive_assetized_resolve/car@</Car>\n"
+        f"    )\n    {{\n    }}\n"
+        for index in range(num_refs)
+    )
+    stage_path = tmp_path / "many_refs.usda"
+    stage_path.write_text(f'#usda 1.0\n\ndef "Root"\n{{\n{prims}}}\n')
+    script = (
+        "import sys\n"
+        "from pxr import Usd\n"
+        "stage = Usd.Stage.Open(sys.argv[1])\n"
+        "cars = stage.GetPrimAtPath('/Root').GetChildren()\n"
+        f"sys.exit(0 if len(cars) == {num_refs} and all(c.HasAttribute('color') for c in cars) else 1)\n"
+    )
+
+    # Several attempts, as a race need not show up every time.
+    for _ in range(5):
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(stage_path)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr[-2000:]
 
 
 # Given a USD document that references an asset via a direct relative
