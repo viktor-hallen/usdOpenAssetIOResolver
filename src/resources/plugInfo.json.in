@@ -6,7 +6,7 @@
                     "UsdOpenAssetIOResolver": {
                         "bases": [
                             "ArResolver"
-                        ]
+                        ]@USDRESOLVER_URI_SCHEMES_JSON@
                     }
                 }
             },

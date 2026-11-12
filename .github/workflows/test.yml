@@ -87,3 +87,15 @@ jobs:
           export "OPENASSETIO_DEFAULT_CONFIG=$GITHUB_WORKSPACE/tests/resources/openassetio_config_cpp.toml"
           export "OPENASSETIO_PLUGIN_PATH=$GITHUB_WORKSPACE/openassetio-build"
           python -m pytest -v --capture=tee-sys tests
+
+      - name: Build and install Resolver (URI scheme registration)
+        run: |
+          cmake -S . -DCMAKE_PREFIX_PATH="./openassetio-build;./openassetio-mediacreation-build" -DOPENASSETIO_USDRESOLVER_URI_SCHEMES=bal -B build-uri-schemes
+          cmake --build build-uri-schemes
+          cmake --install build-uri-schemes
+
+      - name: Test (Python manager, URI scheme registration)
+        run: |
+          export "OPENASSETIO_DEFAULT_CONFIG=$GITHUB_WORKSPACE/tests/resources/openassetio_config_python.toml"
+          export "PXR_PLUGINPATH_NAME=$GITHUB_WORKSPACE/build-uri-schemes/dist/resources/plugInfo.json"
+          python -m pytest -v --capture=tee-sys tests

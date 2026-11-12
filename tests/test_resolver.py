@@ -44,13 +44,28 @@ def test_when_manager_cannot_resolve_then_exception_thrown(monkeypatch):
         os.environ["OPENASSETIO_DEFAULT_CONFIG"] + ".incapable",
     )
 
+    # Resolve an entity reference, so that the plugin is initialized
+    # whether it is the primary resolver or registered for URI schemes.
     with pytest.raises(
         ValueError,
         match=".+ is not capable of resolving entity references",
     ):
-        open_stage(
-            "resources/integration_test_data/recursive_assetized_resolve/floors/floor 1.usd"
-        )
+        Ar.GetResolver().Resolve("bal:///recursive_assetized_resolve/car")
+
+
+# Given the plugin is built with URI schemes, then it is registered as a
+# URI resolver and the default resolver stays primary; otherwise it is
+# the primary resolver. Either way, entity references resolve.
+def test_resolver_registration_matches_plugin_metadata():
+    plugin = Plug.Registry().GetPluginWithName("usdOpenAssetIOResolver")
+    uri_schemes = plugin.metadata["Types"]["UsdOpenAssetIOResolver"].get("uriSchemes")
+    primary = Ar.GetUnderlyingResolver()
+
+    if uri_schemes:
+        assert isinstance(primary, Ar.DefaultResolver)
+    else:
+        assert not isinstance(primary, Ar.DefaultResolver)
+    assert Ar.GetResolver().Resolve("bal:///recursive_assetized_resolve/car")
 
 
 # Given a USD document that references an asset via a direct relative

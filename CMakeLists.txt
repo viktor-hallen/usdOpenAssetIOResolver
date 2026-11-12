@@ -23,6 +23,17 @@ if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND PROJECT_IS_TOP_LEVEL)
 endif ()
 
 #-----------------------------------------------------------------------
+# Resolver registration
+
+# By default the plugin registers as USD's primary resolver, deferring
+# to ArDefaultResolver for strings that are not entity references.
+# Listing URI schemes instead registers it only for asset paths with
+# those schemes, leaving the primary resolver (and any other URI
+# resolvers) untouched.
+set(OPENASSETIO_USDRESOLVER_URI_SCHEMES "" CACHE STRING
+    "Semicolon-separated URI schemes to register the resolver for. Empty registers it as the primary resolver.")
+
+#-----------------------------------------------------------------------
 # Lint options
 
 # Default treating compiler warnings as errors to OFF, since

@@ -42,12 +42,31 @@ install(
 
 #-----------------------------------------------------------------------
 # Generate and install plugInfo.json
-# The library file name is platform specific (e.g. lib*.so, lib*.dylib,
-# *.dll), so it is filled in from the built target.
+# Optional URI scheme registration is filled in at configure time. The
+# library file name is platform specific (e.g. lib*.so, lib*.dylib,
+# *.dll), so it is filled in from the built target at generate time.
+set(USDRESOLVER_URI_SCHEMES_JSON "")
+if (OPENASSETIO_USDRESOLVER_URI_SCHEMES)
+    set(_quoted_schemes)
+    foreach (scheme IN LISTS OPENASSETIO_USDRESOLVER_URI_SCHEMES)
+        # RFC 3986 scheme syntax, which USD also requires.
+        if (NOT scheme MATCHES "^[A-Za-z][A-Za-z0-9+.-]*$")
+            message(FATAL_ERROR "Invalid URI scheme in OPENASSETIO_USDRESOLVER_URI_SCHEMES: '${scheme}'")
+        endif ()
+        list(APPEND _quoted_schemes "\"${scheme}\"")
+    endforeach ()
+    list(JOIN _quoted_schemes ", " _joined_schemes)
+    set(USDRESOLVER_URI_SCHEMES_JSON ",\n                        \"uriSchemes\": [${_joined_schemes}]")
+endif ()
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/plugInfo.json.in
+    ${CMAKE_CURRENT_BINARY_DIR}/plugInfo.json.configured
+    @ONLY
+)
 file(
     GENERATE
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/plugInfo.json
-    INPUT ${CMAKE_CURRENT_SOURCE_DIR}/resources/plugInfo.json.in
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/plugInfo.json.configured
 )
 install(
     FILES

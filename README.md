@@ -111,6 +111,18 @@ cmake --build build
 cmake --install build
 ```
 
+By default the plugin replaces USD's primary resolver, deferring to
+`ArDefaultResolver` for asset paths that are not entity references.
+To leave the primary resolver (and any other resolvers) in place,
+register the plugin only for your manager's URI schemes instead:
+
+```sh
+cmake -S . -B build -DOPENASSETIO_USDRESOLVER_URI_SCHEMES="bal" ...
+```
+
+Multiple schemes are separated by semicolons. Entity references must
+then begin with one of these schemes, followed by `:`.
+
 ## Running
 
 To enable the resolver, before running any USD application, you must set
