@@ -172,7 +172,18 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
   }
 
   [[nodiscard]] std::string _GetExtension(const std::string &assetPath) const override {
-    return ArDefaultResolver::_GetExtension(assetPath);
+    return catchAndLogExceptions(
+        [&] {
+          // Entity references need not carry a file extension, but USD
+          // uses the extension to decide whether, and in which format,
+          // an asset is a layer. So use the extension of the resolved
+          // location.
+          if (const auto entityReference = manager_->createEntityReferenceIfValid(assetPath)) {
+            return ArDefaultResolver::_GetExtension(resolveToPath(*entityReference));
+          }
+          return ArDefaultResolver::_GetExtension(assetPath);
+        },
+        TF_FUNC_NAME());
   }
 
   [[nodiscard]] ArAssetInfo _GetAssetInfo(const std::string &assetPath,

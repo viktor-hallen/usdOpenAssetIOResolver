@@ -25,7 +25,7 @@ if "PXR_PLUGINPATH_NAME" not in os.environ:
     if os.path.exists(plug_info):
         os.environ["PXR_PLUGINPATH_NAME"] = plug_info
 
-from pxr import Plug, Usd, Ar, Sdf, Tf
+from pxr import Plug, Usd, UsdUtils, Ar, Sdf, Tf
 
 # TODO(DF): More tests for error cases.
 
@@ -95,6 +95,31 @@ def test_recursive_assetized_resolve():
 # document containing a non-assetized, adjacent relative file path
 # reference to a third level document, then the document can be fully
 # resolved.
+# Given an entity reference with no file extension, then the extension
+# is that of the location the reference resolves to.
+def test_entity_reference_extension_is_that_of_resolved_location():
+    resolver = Ar.GetResolver()
+    assert resolver.GetExtension("bal:///recursive_assetized_resolve/car") == "usd"
+    assert resolver.GetExtension("bal:///recursive_assetized_resolve/floor") == "usd"
+
+
+# Given a USD document that references assetized documents, then
+# dependency analysis treats the referenced documents as layers and
+# follows them.
+def test_dependencies_of_assetized_references_are_layers():
+    script_dir = os.path.realpath(os.path.dirname(__file__))
+    layers, _, unresolved = UsdUtils.ComputeAllDependencies(
+        os.path.join(
+            script_dir,
+            "resources/integration_test_data/recursive_assetized_resolve/parking_lot.usd",
+        )
+    )
+
+    layer_names = {os.path.basename(layer.realPath) for layer in layers}
+    assert {"parking_lot.usd", "floor @ 1.usd", "car.usd"} <= layer_names
+    assert not unresolved
+
+
 def test_assetized_child_ref_non_assetized_grandchild():
     stage = open_stage(
         "resources/integration_test_data"
