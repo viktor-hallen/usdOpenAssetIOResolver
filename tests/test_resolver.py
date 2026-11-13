@@ -34,12 +34,13 @@ from pxr import Plug, Usd, UsdUtils, Ar, Sdf, Tf
 
 
 # Assert that the USD resolver checks that the OpenAssetIO manager is
-# capable of `resolve`ing.
+# capable of `resolve`ing, reporting it when an entity reference is
+# resolved rather than failing the host when the plugin is created.
 #
 # Fork process so that the USD plugin is initialized again, but with
 # patched `hasCapability`.
 @pytest.mark.forked
-def test_when_manager_cannot_resolve_then_exception_thrown(monkeypatch):
+def test_when_manager_cannot_resolve_then_resolving_errors(monkeypatch):
     # Use config that removes the "resolution" capability from the
     # manager's advertised set of capabilities.
     monkeypatch.setenv(
@@ -47,10 +48,15 @@ def test_when_manager_cannot_resolve_then_exception_thrown(monkeypatch):
         os.environ["OPENASSETIO_DEFAULT_CONFIG"] + ".incapable",
     )
 
-    # Resolve an entity reference, so that the plugin is initialized
-    # whether it is the primary resolver or registered for URI schemes.
+    # Registered for URI schemes, the manager is only consulted for those,
+    # so a document without entity references still opens. As the primary
+    # resolver, the manager decides every asset path.
+    if _registered_uri_schemes():
+        assert open_stage(
+            "resources/integration_test_data/resolver_has_no_effect_with_no_search_path/car.usd"
+        )
     with pytest.raises(
-        ValueError,
+        Tf.ErrorException,
         match=".+ is not capable of resolving entity references",
     ):
         Ar.GetResolver().Resolve("bal:///recursive_assetized_resolve/car")
@@ -60,11 +66,9 @@ def test_when_manager_cannot_resolve_then_exception_thrown(monkeypatch):
 # URI resolver and the default resolver stays primary; otherwise it is
 # the primary resolver. Either way, entity references resolve.
 def test_resolver_registration_matches_plugin_metadata():
-    plugin = Plug.Registry().GetPluginWithName("usdOpenAssetIOResolver")
-    uri_schemes = plugin.metadata["Types"]["UsdOpenAssetIOResolver"].get("uriSchemes")
     primary = Ar.GetUnderlyingResolver()
 
-    if uri_schemes:
+    if _registered_uri_schemes():
         assert isinstance(primary, Ar.DefaultResolver)
     else:
         assert not isinstance(primary, Ar.DefaultResolver)
@@ -292,6 +296,13 @@ def build_search_path_context(path_relative_from_file):
     script_dir = os.path.realpath(os.path.dirname(__file__))
     full_path = os.path.join(script_dir, path_relative_from_file)
     return Ar.DefaultResolverContext([full_path])
+
+
+# URI schemes the plugin is registered for; empty when it is the
+# primary resolver.
+def _registered_uri_schemes():
+    plugin = Plug.Registry().GetPluginWithName("usdOpenAssetIOResolver")
+    return plugin.metadata["Types"]["UsdOpenAssetIOResolver"].get("uriSchemes", [])
 
 
 # Open the stage

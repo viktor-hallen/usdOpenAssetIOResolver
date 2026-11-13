@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2023 The Foundry Visionmongers Ltd
 
+#include <atomic>
 #include <stdexcept>
 
+#include <pxr/base/arch/threads.h>
 #include <pxr/base/tf/debug.h>
 #include <pxr/base/tf/diagnostic.h>
 #include <pxr/usd/ar/assetInfo.h>
@@ -81,7 +83,17 @@ class UsdOpenAssetIOHostInterface final : public openassetio::hostApi::HostInter
 };
 
 /**
- * The OpenAssetIO objects a resolver instance talks to.
+ * The process-wide logger, available before the manager is.
+ */
+const openassetio::log::LoggerInterfacePtr &sharedLogger() {
+  // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+  static const auto *const kLogger = new openassetio::log::LoggerInterfacePtr{
+      openassetio::log::SeverityFilter::make(std::make_shared<UsdOpenAssetIOResolverLogger>())};
+  return *kLogger;
+}
+
+/**
+ * The OpenAssetIO objects resolver instances talk to.
  */
 struct OpenAssetIOSession {
   openassetio::log::LoggerInterfacePtr logger;
@@ -97,8 +109,7 @@ OpenAssetIOSession createOpenAssetIOSession() {
   TfPyInitialize();
 #endif
   OpenAssetIOSession session;
-  session.logger =
-      openassetio::log::SeverityFilter::make(std::make_shared<UsdOpenAssetIOResolverLogger>());
+  session.logger = sharedLogger();
   // Python plugin system.
   const auto pythonManagerImplementationFactory =
       openassetio::python::hostApi::createPythonPluginSystemManagerImplementationFactory(
@@ -134,14 +145,16 @@ OpenAssetIOSession createOpenAssetIOSession() {
 
 /**
  * The process-wide OpenAssetIO session, shared by all resolver
- * instances.
+ * instances and created on first use.
  *
- * USD may construct a resolver more than once, concurrently, and
- * discard all but one instance; it does so when lazily creating URI
- * resolvers from composition threads. Initializing and tearing down a
- * manager per instance in that situation is unsafe, so instances share
- * one session, initialized once (a failed initialization is retried by
- * the next instance). It is intentionally never destroyed, so that it
+ * USD creates resolvers on whichever thread first needs one, including
+ * worker threads (e.g. while registering shader definitions at host
+ * startup), and may construct several concurrently and discard all but
+ * one. Starting a manager plugin system there can import Python on a
+ * worker thread, which some hosts do not survive. So resolver instances
+ * do no OpenAssetIO work when constructed; they share one session,
+ * initialized once when first needed (a failed initialization is
+ * retried on next use). It is intentionally never destroyed, so that it
  * is not torn down during process exit after the Python interpreter.
  */
 const OpenAssetIOSession &sharedOpenAssetIOSession() {
@@ -159,22 +172,36 @@ const OpenAssetIOSession &sharedOpenAssetIOSession() {
  */
 class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
  public:
-  UsdOpenAssetIOResolver() {
-    const OpenAssetIOSession &session = sharedOpenAssetIOSession();
-    logger_ = session.logger;
-    manager_ = session.manager;
-    context_ = session.context;
-  }
+  UsdOpenAssetIOResolver() : logger_{sharedLogger()} {}
 
   ~UsdOpenAssetIOResolver() override = default;
 
  protected:
+  void _BindContext(const ArResolverContext &context, VtValue *bindingData) override {
+    ArDefaultResolver::_BindContext(context, bindingData);
+    // Stages bind their context on the opening thread before composition
+    // fans out to worker threads. Starting the session here, once, on the
+    // main thread keeps manager initialization off worker threads.
+    // A failure here is only a warning: documents without entity
+    // references must still open, and resolving one reports the error.
+    static std::atomic<bool> attempted{false};
+    if (ArchIsMainThread() && !attempted.exchange(true)) {
+      try {
+        static_cast<void>(session());
+      } catch (const std::exception &exc) {
+        logger_->warning(std::string{"OpenAssetIO manager unavailable: "} + exc.what());
+      } catch (...) {
+        logger_->warning("OpenAssetIO manager unavailable: unknown non-exception type caught");
+      }
+    }
+  }
+
   [[nodiscard]] std::string _CreateIdentifier(
       const std::string &assetPath, const ArResolvedPath &anchorAssetPath) const override {
     return catchAndLogExceptions(
         [&] {
           std::string identifier;
-          if (manager_->isEntityReferenceString(assetPath)) {
+          if (session().manager->isEntityReferenceString(assetPath)) {
             identifier = assetPath;
           } else {
             identifier = ArDefaultResolver::_CreateIdentifier(assetPath, anchorAssetPath);
@@ -187,7 +214,8 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
   [[nodiscard]] ArResolvedPath _Resolve(const std::string &assetPath) const override {
     return catchAndLogExceptions(
         [&] {
-          if (const auto entityReference = manager_->createEntityReferenceIfValid(assetPath)) {
+          if (const auto entityReference =
+                  session().manager->createEntityReferenceIfValid(assetPath)) {
             return ArResolvedPath{resolveToPath(*entityReference)};
           }
           return ArDefaultResolver::_Resolve(assetPath);
@@ -197,23 +225,33 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
 
   [[nodiscard]] std::string _CreateIdentifierForNewAsset(
       const std::string &assetPath, const ArResolvedPath &anchorAssetPath) const override {
-    if (manager_->isEntityReferenceString(assetPath)) {
-      std::string message = "Writes to OpenAssetIO entity references are not currently supported ";
-      message += assetPath;
-      logger_->critical(message);
-      return "";
-    }
-    return ArDefaultResolver::_CreateIdentifierForNewAsset(assetPath, anchorAssetPath);
+    return catchAndLogExceptions(
+        [&] {
+          if (session().manager->isEntityReferenceString(assetPath)) {
+            std::string message =
+                "Writes to OpenAssetIO entity references are not currently supported ";
+            message += assetPath;
+            logger_->critical(message);
+            return std::string{};
+          }
+          return ArDefaultResolver::_CreateIdentifierForNewAsset(assetPath, anchorAssetPath);
+        },
+        TF_FUNC_NAME());
   }
 
   [[nodiscard]] ArResolvedPath _ResolveForNewAsset(const std::string &assetPath) const override {
-    if (manager_->isEntityReferenceString(assetPath)) {
-      std::string message = "Writes to OpenAssetIO entity references are not currently supported ";
-      message += assetPath;
-      logger_->critical(message);
-      return ArResolvedPath("");
-    }
-    return ArDefaultResolver::_ResolveForNewAsset(assetPath);
+    return catchAndLogExceptions(
+        [&] {
+          if (session().manager->isEntityReferenceString(assetPath)) {
+            std::string message =
+                "Writes to OpenAssetIO entity references are not currently supported ";
+            message += assetPath;
+            logger_->critical(message);
+            return ArResolvedPath{};
+          }
+          return ArDefaultResolver::_ResolveForNewAsset(assetPath);
+        },
+        TF_FUNC_NAME());
   }
 
   [[nodiscard]] std::string _GetExtension(const std::string &assetPath) const override {
@@ -223,7 +261,8 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
           // uses the extension to decide whether, and in which format,
           // an asset is a layer. So use the extension of the resolved
           // location.
-          if (const auto entityReference = manager_->createEntityReferenceIfValid(assetPath)) {
+          if (const auto entityReference =
+                  session().manager->createEntityReferenceIfValid(assetPath)) {
             return ArDefaultResolver::_GetExtension(resolveToPath(*entityReference));
           }
           return ArDefaultResolver::_GetExtension(assetPath);
@@ -258,6 +297,11 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
 
  private:
   /**
+   * The shared OpenAssetIO session, started on first use.
+   */
+  [[nodiscard]] static const OpenAssetIOSession &session() { return sharedOpenAssetIOSession(); }
+
+  /**
    * Retrieve the resolved file path of an entity reference.
    *
    * This will resolve the "locateableContent" trait of the entity and
@@ -274,8 +318,10 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
 
     // Resolve the locatable content trait, this will provide a URL
     // that points to the final content
-    const openassetio::trait::TraitsDataPtr traitsData = manager_->resolve(
-        entityReference, {LocatableContentTrait_v1::kId}, ResolveAccess::kRead, context_);
+    const OpenAssetIOSession &openAssetIO = session();
+    const openassetio::trait::TraitsDataPtr traitsData =
+        openAssetIO.manager->resolve(entityReference, {LocatableContentTrait_v1::kId},
+                                     ResolveAccess::kRead, openAssetIO.context);
 
     const std::optional<openassetio::Str> url = LocatableContentTrait_v1(traitsData).getLocation();
     if (!url) {
@@ -328,8 +374,6 @@ class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
   }
 
   openassetio::log::LoggerInterfacePtr logger_;
-  openassetio::hostApi::ManagerPtr manager_;
-  openassetio::ContextConstPtr context_;
   openassetio::utils::FileUrlPathConverter fileUrlPathConverter_;
 };
 
