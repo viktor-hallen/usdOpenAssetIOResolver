@@ -12,6 +12,8 @@ that in turn points to a manager plugin that will satisfy these tests.
 # pylint: disable=missing-function-docstring,missing-module-docstring
 
 import os
+import shutil
+import subprocess
 from unittest import mock
 
 import pytest
@@ -51,6 +53,31 @@ def test_when_manager_cannot_resolve_then_exception_thrown(monkeypatch):
         open_stage(
             "resources/integration_test_data/recursive_assetized_resolve/floors/floor 1.usd"
         )
+
+
+# Given a host that does not embed Python, such as usdcat in USD builds
+# where it is a C++ program, then entity references still resolve, as the
+# plugin starts the interpreter that Python manager plugins need.
+def test_host_without_python_resolves_entity_references():
+    usdcat = shutil.which("usdcat")
+    if usdcat is None:
+        pytest.skip("usdcat is not on PATH")
+    script_dir = os.path.realpath(os.path.dirname(__file__))
+    stage_path = os.path.join(
+        script_dir,
+        "resources/integration_test_data/recursive_assetized_resolve/parking_lot.usd",
+    )
+
+    result = subprocess.run(
+        [usdcat, "--flatten", stage_path],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert "Car1" in result.stdout
 
 
 # Given a USD document that references an asset via a direct relative

@@ -8,6 +8,9 @@
 #include <pxr/usd/ar/assetInfo.h>
 #include <pxr/usd/ar/defaultResolver.h>
 #include <pxr/usd/ar/defineResolver.h>
+#ifdef PXR_PYTHON_SUPPORT_ENABLED
+#include <pxr/base/tf/pyInterpreter.h>
+#endif
 
 #include <openassetio/Context.hpp>
 #include <openassetio/access.hpp>
@@ -87,6 +90,12 @@ class UsdOpenAssetIOHostInterface final : public openassetio::hostApi::HostInter
 class UsdOpenAssetIOResolver final : public PXR_NS::ArDefaultResolver {
  public:
   UsdOpenAssetIOResolver() {
+#ifdef PXR_PYTHON_SUPPORT_ENABLED
+    // Python manager plugins need a running interpreter, which hosts
+    // that do not embed Python (e.g. usdcat) have not started. This is
+    // a no-op when one is already running.
+    TfPyInitialize();
+#endif
     logger_ =
         openassetio::log::SeverityFilter::make(std::make_shared<UsdOpenAssetIOResolverLogger>());
     // Python plugin system.
